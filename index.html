@@ -684,7 +684,7 @@ var ready=false, user=null, role=null, db=null, F=null, timer=null, st='login', 
 
 /* ---- UI ---- */
 var css=document.createElement('style');
-css.textContent='#syncLogin{position:fixed;inset:0;z-index:99999;background:#f4f1ea;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Sarabun,system-ui,sans-serif}#syncLogin .bx{background:#fff;border-radius:16px;padding:24px 20px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.12)}#syncLogin h1{margin:0 0 4px;font-size:20px}#syncLogin p{margin:0 0 16px;color:#666;font-size:14px}#syncLogin input{width:100%;box-sizing:border-box;padding:12px;margin-bottom:10px;border:1px solid #ccc;border-radius:10px;font-size:16px}#syncLogin button{width:100%;padding:13px;border:0;border-radius:10px;background:#1f5fbf;color:#fff;font-size:16px;font-weight:700}#syncLogin .er{color:#c0392b;font-size:14px;min-height:20px;margin-bottom:8px}#syncPill{position:fixed;left:8px;bottom:8px;z-index:9999;background:rgba(30,30,30,.82);color:#fff;border-radius:16px;padding:5px 11px;font-size:12px;font-family:Sarabun,system-ui,sans-serif}#syncBan{position:fixed;left:0;right:0;top:0;z-index:99998;background:#e67e22;color:#fff;text-align:center;padding:12px;font-size:15px;font-weight:700;font-family:Sarabun,system-ui,sans-serif}';
+css.textContent='#syncLogin{position:fixed;inset:0;z-index:99999;background:#f4f1ea;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Sarabun,system-ui,sans-serif}#syncLogin .bx{background:#fff;border-radius:16px;padding:24px 20px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.12)}#syncLogin h1{margin:0 0 4px;font-size:20px}#syncLogin p{margin:0 0 16px;color:#666;font-size:14px}#syncLogin input{width:100%;box-sizing:border-box;padding:12px;margin-bottom:10px;border:1px solid #ccc;border-radius:10px;font-size:16px}#syncLogin button{width:100%;padding:13px;border:0;border-radius:10px;background:#1f5fbf;color:#fff;font-size:16px;font-weight:700}#syncLogin .er{color:#c0392b;font-size:14px;min-height:20px;margin-bottom:8px}#syncBan{position:fixed;left:0;right:0;top:0;z-index:99998;background:#e67e22;color:#fff;text-align:center;padding:12px;font-size:15px;font-weight:700;font-family:Sarabun,system-ui,sans-serif}';
 document.head.appendChild(css);
 var ov=null,pill=null;
 function showLogin(msg){
@@ -696,9 +696,14 @@ function showLogin(msg){
   ov.hidden=false; ov.querySelector('#ser').textContent=msg||''; try{var re=ls.getItem('__sync_email'); if(re&&!ov.querySelector('#sem').value)ov.querySelector('#sem').value=re}catch(e){}
 }
 function hideLogin(){if(ov)ov.hidden=true}
-function setSt(s,t){st=s; if(!pill){pill=document.createElement('div');pill.id='syncPill';document.body.appendChild(pill);
-  pill.addEventListener('click',function(){ if(confirm('ออกจากระบบ?')){F.signOut(F.auth)} })}
-  pill.textContent=t; pill.hidden=!user}
+function setSt(s,t){st=s;
+  var row=document.querySelector('.toprow'); if(!row)return;
+  if(!pill){pill=document.createElement('span');pill.id='syncPill';pill.style.cssText='display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;color:#555';
+    var tx=document.createElement('span');tx.id='syncTx';
+    var lo=document.createElement('button');lo.type='button';lo.className='brbtn';lo.textContent='ออกจากระบบ';lo.style.marginTop='0';
+    lo.addEventListener('click',function(){ if(confirm('ออกจากระบบ?')){F.signOut(F.auth)} });
+    pill.appendChild(tx);pill.appendChild(lo);row.appendChild(document.createTextNode(' '));row.appendChild(pill)}
+  pill.querySelector('#syncTx').textContent=t; pill.hidden=!user}
 function banner(){ if(document.getElementById('syncBan'))return; var b=document.createElement('div'); b.id='syncBan'; b.textContent='มีข้อมูลใหม่จากเครื่องอื่น แตะเพื่ออัปเดต'; b.onclick=function(){location.reload()}; document.body.appendChild(b) }
 function errTh(c){ if(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c))return'อีเมลหรือรหัสผ่านไม่ถูกต้อง'; if(/too-many/.test(c))return'ลองหลายครั้งเกินไป รอสักครู่แล้วลองใหม่'; if(/network/.test(c))return'ไม่มีอินเทอร์เน็ต'; return'เข้าสู่ระบบไม่สำเร็จ ('+c+')' }
 function doLogin(){
