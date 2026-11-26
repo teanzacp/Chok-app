@@ -305,7 +305,7 @@ body[data-view=bill] #ledgerView,body[data-view=stock] #ledgerView,body[data-vie
   <div>
     <h1>ระบบจัดการร้านโชคประธานค้าไม้</h1>
     <p>ใบส่งของ · บิลเงินสด · สต็อก · รายรับ-รายจ่าย · ค่าแรง</p>
-    <div class="toprow"><button type="button" class="brbtn" id="brBtn">สาขา<b id="brName"></b> ▾</button> <button type="button" class="brbtn" id="bkBtn">สำรองข้อมูล<i class="dot" id="bkDot" hidden></i></button></div>
+    <div class="toprow"><button type="button" class="brbtn" id="brBtn">สาขา<b id="brName"></b> ▾</button> <button type="button" class="brbtn" id="scanBtn">สแกนบิล 📷</button> <button type="button" class="brbtn" id="bkBtn">สำรองข้อมูล<i class="dot" id="bkDot" hidden></i></button></div>
   </div>
 </header>
 
@@ -680,7 +680,7 @@ function syncable(k){return /^bill_maker_/.test(k)&&!SKIP.test(k)}
 var dev=(function(){var d=ls.getItem(DEVKEY); if(!d){d=Math.random().toString(36).slice(2,10); rawSet.call(ls,DEVKEY,d)} return d})();
 var dirty=(function(){try{return JSON.parse(ls.getItem(DIRTYKEY))||{}}catch(e){return {}}})();
 function saveDirty(){try{rawSet.call(ls,DIRTYKEY,JSON.stringify(dirty))}catch(e){}}
-var ready=false, user=null, role=null, db=null, F=null, timer=null, st='login', pending=false;
+var offline=false, ready=false, user=null, role=null, db=null, F=null, timer=null, st='login', pending=false;
 
 /* ---- UI ---- */
 var css=document.createElement('style');
@@ -735,10 +735,11 @@ function flush(){
   setSt('busy','☁ กำลังบันทึก…');
   Promise.all(ks.map(push)).then(function(){setSt('ok','☁ ซิงก์แล้ว')}).catch(function(e){setSt('err','☁ ยังไม่ได้ซิงก์ (จะลองใหม่)');setTimeout(flush,15000)});
 }
-function mark(k){ if(!syncable(k))return; dirty[k]=Date.now(); saveDirty(); if(ready){setSt('busy','☁ รอบันทึก…'); clearTimeout(timer); timer=setTimeout(flush,800)} }
-proto.setItem=function(k,v){ rawSet.apply(this,arguments); if(this===ls&&ready&&syncable(k))mark(k) };
+function mark(k){ if(!syncable(k))return; dirty[k]=Date.now(); saveDirty(); if(ready&&!offline){setSt('busy','☁ รอบันทึก…'); clearTimeout(timer); timer=setTimeout(flush,800)} }
+proto.setItem=function(k,v){ rawSet.apply(this,arguments); if(this===ls&&(ready||offline)&&syncable(k))mark(k) };
 window.addEventListener('pagehide',function(){ /* best effort */ });
-window.addEventListener('online',function(){flush()});
+window.addEventListener('online',function(){ if(offline){ if(F&&user&&user.uid){afterAuth(user)} else {banner2()} } else flush() });
+function banner2(){ if(document.getElementById('syncBan'))return; var b=document.createElement('div'); b.id='syncBan'; b.textContent='กลับมาออนไลน์แล้ว แตะเพื่อซิงก์ข้อมูล'; b.onclick=function(){location.reload()}; document.body.appendChild(b) }
 
 /* ---- assemble remote docs ---- */
 function assemble(docs){ /* docs: array of data; returns {key:{n,t,value,dev}} complete only */
@@ -760,11 +761,18 @@ function startLive(){
   },function(){})});
 }
 
+function lastOk(){try{return JSON.parse(ls.getItem('__sync_last'))}catch(e){return null}}
+function goOffline(why){
+  var lo=lastOk(); if(!lo||!lo.role)return false;
+  role=role||lo.role; offline=true; ready=false; hideLogin();
+  user=user||{email:lo.email}; setSt('err','☁ ออฟไลน์ (บันทึกในเครื่อง)');
+  return true;
+}
 function afterAuth(u){
   user=u; var em=(u.email||'').toLowerCase();
   role=OWNERS.indexOf(em)>=0?'owner':(BRANCH_USERS[em]||null);
   if(!role){F.signOut(F.auth);showLogin('บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้งาน');return}
-  hideLogin(); setSt('busy','☁ กำลังโหลดข้อมูล…');
+  hideLogin(); setSt('busy','☁ กำลังโหลดข้อมูล…'); try{rawSet.call(ls,'__sync_last',JSON.stringify({email:em,role:role}))}catch(e){}
   loadAll().then(function(m){
     var changed=false;
     Object.keys(m).forEach(function(k){var r=m[k]; known[k]={n:r.n,t:r.t}; if(!syncable(k)||!allowed(k))return; if(dirty[k])return; if(ls.getItem(k)!==r.v){rawSet.call(ls,k,r.v);changed=true}});
@@ -775,10 +783,11 @@ function afterAuth(u){
     return (Object.keys(dirty).length?Promise.all(Object.keys(dirty).filter(allowed).map(push)):Promise.resolve()).then(function(){
       if(changed&&!sessionStorage.getItem('__syncReload')){sessionStorage.setItem('__syncReload','1');location.reload();return}
       sessionStorage.removeItem('__syncReload');
-      ready=true; setSt('ok','☁ ซิงก์แล้ว'); startLive();
+      offline=false; ready=true; setSt('ok','☁ ซิงก์แล้ว'); startLive();
     });
-  }).catch(function(e){ setSt('err','☁ ต่อระบบไม่ได้'); console.error(e); ready=false;
-    var b=document.createElement('div');b.id='syncBan';b.textContent='เชื่อมต่อฐานข้อมูลไม่สำเร็จ แตะเพื่อลองใหม่';b.onclick=function(){location.reload()};document.body.appendChild(b) });
+  }).catch(function(e){ console.error(e); ready=false;
+    if(goOffline())return;
+    setSt('err','☁ ต่อระบบไม่ได้'); var b=document.createElement('div');b.id='syncBan';b.textContent='เชื่อมต่อฐานข้อมูลไม่สำเร็จ แตะเพื่อลองใหม่';b.onclick=function(){location.reload()};document.body.appendChild(b) });
 }
 
 function boot(){
@@ -790,9 +799,10 @@ function boot(){
   ]).then(function(m){
     var app=m[0].initializeApp(FB);
     F=Object.assign({},m[1],m[2]); F.auth=F.getAuth(app); try{F.setPersistence(F.auth,F.browserLocalPersistence)}catch(e){} db=F.getFirestore(app);
-    F.onAuthStateChanged(F.auth,function(u){ if(u)afterAuth(u); else {user=null;ready=false;if(pill)pill.hidden=true;showLogin('')} });
-  }).catch(function(e){showLogin('โหลดระบบล็อกอินไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วรีเฟรช')});
+    F.onAuthStateChanged(F.auth,function(u){ if(u)afterAuth(u); else { if(offline&&!navigator.onLine)return; offline=false;user=null;ready=false;if(pill)pill.hidden=true;showLogin('') } });
+  }).catch(function(e){ if(!goOffline())showLogin('โหลดระบบล็อกอินไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วรีเฟรช')});
 }
+try{ if('serviceWorker' in navigator&&/^https:/.test(location.protocol)) navigator.serviceWorker.register('sw.js') }catch(e){}
 if(document.body)boot(); else document.addEventListener('DOMContentLoaded',boot);
 })();
 
@@ -2503,6 +2513,171 @@ function renderWage(){
   });
 }
 $('#wAdd').addEventListener('click',function(){openWorker(null)});
+
+/* ---------- bill scan (photo -> OCR -> review -> ledger/stock/bill) ---------- */
+var TESS_URL='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+var tessP=null;
+function loadTess(){
+  if(window.Tesseract) return Promise.resolve();
+  if(tessP) return tessP;
+  tessP=new Promise(function(res,rej){var s=document.createElement('script');s.src=TESS_URL;s.onload=res;s.onerror=function(){tessP=null;rej(new Error('โหลดตัวอ่านภาพไม่ได้ ตรวจสอบอินเทอร์เน็ต'))};document.head.appendChild(s)});
+  return tessP;
+}
+function prepImage(file){
+  return new Promise(function(res,rej){
+    var url=URL.createObjectURL(file), im=new Image();
+    im.onload=function(){
+      var m=1800, k=Math.min(1,m/Math.max(im.width,im.height)), c=document.createElement('canvas');
+      c.width=Math.round(im.width*k); c.height=Math.round(im.height*k);
+      var x=c.getContext('2d'); x.drawImage(im,0,0,c.width,c.height);
+      var d=x.getImageData(0,0,c.width,c.height), a=d.data, lo=255, hi=0, i, g;
+      for(i=0;i<a.length;i+=4){g=Math.round(a[i]*.299+a[i+1]*.587+a[i+2]*.114); a[i]=a[i+1]=a[i+2]=g; if(g<lo)lo=g; if(g>hi)hi=g}
+      var rg=Math.max(1,hi-lo); for(i=0;i<a.length;i+=4){g=Math.round((a[i]-lo)*255/rg); a[i]=a[i+1]=a[i+2]=g}
+      x.putImageData(d,0,0); URL.revokeObjectURL(url);
+      res({canvas:c,thumb:c.toDataURL('image/jpeg',.5)});
+    };
+    im.onerror=function(){URL.revokeObjectURL(url);rej(new Error('เปิดรูปไม่ได้'))};
+    im.src=url;
+  });
+}
+function th2ar(s){return String(s).replace(/[๐-๙]/g,function(c){return String(c.charCodeAt(0)-3664)})}
+var SKIP_LINE=/(เลขที่|โทร|tel|fax|ที่อยู่|วันที่|date|ใบเสร็จ|ใบส่งของ|ใบกำกับ|invoice|receipt|ผู้รับ|ผู้ส่ง|ลายเซ็น|ขอบคุณ|หมายเหตุ|เล่มที่|tax\s*id|เลขประจำตัว|ภาษี|vat|ส่วนลด|รวมเงิน|ยอดรวม|รวมทั้งสิ้น|total|จำนวนเงิน|ตัวอักษร|บาทถ้วน)/i;
+function scanParse(raw){
+  var text=th2ar(String(raw||'')).replace(/[|\\_]/g,' '), lines=text.split(/\r?\n/).map(function(l){return l.replace(/\s+/g,' ').trim()}).filter(Boolean);
+  var out={rows:[],total:null,date:''};
+  var dm=text.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(dm){var y=+dm[3]; if(y<100)y+=2500; if(y>2400)y-=543; var mo=+dm[2],dd=+dm[1]; if(mo>=1&&mo<=12&&dd>=1&&dd<=31&&y>1990&&y<2100) out.date=y+'-'+String(mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0')}
+  lines.forEach(function(l){
+    var nums=(l.match(/\d[\d,]*(?:\.\d+)?/g)||[]).map(function(n){return num(n)}).filter(function(n){return n!==null});
+    if(/(รวมทั้งสิ้น|ยอดรวม|รวมเงิน|total|grand)/i.test(l)&&nums.length){var t=nums[nums.length-1]; if(out.total===null||t>out.total) out.total=t}
+  });
+  lines.forEach(function(l){
+    if(SKIP_LINE.test(l)) return;
+    if(!/[ก-๙a-zA-Z]/.test(l)) return;
+    var re=/\d[\d,]*(?:\.\d+)?/g, m, pos=[];
+    while((m=re.exec(l))) pos.push({i:m.index,s:m[0],n:num(m[0])});
+    pos=pos.filter(function(p){return p.n!==null});
+    if(!pos.length) return;
+    var desc=l, qty='', price='', amt='';
+    function near(a,b){return Math.abs(a-b)<=Math.max(1,Math.abs(b)*0.011)}
+    var found=null, last=pos.slice(-5);
+    for(var i=0;i<last.length&&!found;i++) for(var j=i+1;j<last.length&&!found;j++) for(var k=j+1;k<last.length&&!found;k++){
+      if(near(last[i].n*last[j].n,last[k].n)&&last[k].n>0) found=[last[i],last[j],last[k]];
+    }
+    if(found){qty=String(found[0].n); price=String(found[1].n); amt=String(found[2].n); desc=l.slice(0,found[0].i)}
+    else if(pos.length>=3){var t3=pos.slice(-3); qty=String(t3[0].n); price=String(t3[1].n); amt=String(t3[2].n); desc=l.slice(0,t3[0].i)}
+    else if(pos.length===2){var a=pos[0],b=pos[1]; qty=String(a.n); amt=String(b.n); if(a.n>0&&b.n>0) price=String(Math.round(b.n/a.n*100)/100); desc=l.slice(0,a.i)}
+    else {var o=pos[0]; if(o.i>l.length/2){amt=String(o.n); desc=l.slice(0,o.i)} else {desc=l; qty=''}}
+    desc=desc.replace(/[:;,.\-–]+\s*$/,'').trim();
+    if(desc.length<2) return;
+    out.rows.push({desc:desc,qty:qty,price:price,amt:amt});
+  });
+  return out;
+}
+function scanMatch(desc){
+  var k=String(desc||'').replace(/\s+/g,'').toLowerCase(); if(k.length<2) return null;
+  var best=null,bl=0;
+  stock.products.forEach(function(p){
+    var n=p.name.replace(/\s+/g,'').toLowerCase(); if(!n) return;
+    if(n===k) {best=p;bl=999}
+    else if((n.indexOf(k)>=0||k.indexOf(n)>=0)&&Math.min(n.length,k.length)>bl){best=p;bl=Math.min(n.length,k.length)}
+  });
+  return best;
+}
+function scanReview(S,parsed,thumb){
+  var kind='buy';
+  var body=S.q('.sh-body');
+  body.innerHTML='<p class="hint" style="margin-top:0">ตรวจและแก้ให้ถูกต้องก่อนบันทึก การอ่านภาพอาจผิดพลาดโดยเฉพาะลายมือ</p>'+
+   '<div class="seg sc-kind"><button type="button" data-k="buy" class="on">บิลซื้อเข้า</button><button type="button" data-k="sell">บิลขายออก</button></div>'+
+   '<label>วันที่<input type="date" class="sc-date"></label>'+
+   '<div class="sc-rows"></div><div class="fbtns"><button type="button" class="btn sm sc-add">+ เพิ่มแถว</button></div>'+
+   '<div class="sc-buy"><label>ชื่อร้าน/ผู้ขาย (ใส่ในรายจ่าย)<input type="text" class="sc-vendor" autocomplete="off"></label>'+
+   '<label>ยอดรวมบิล (บาท)<input type="text" class="sc-total" inputmode="decimal"></label>'+
+   '<label class="chk"><input type="checkbox" class="sc-led" checked> บันทึกเป็นรายจ่าย (หมวดรายจ่ายอื่นๆ)</label>'+
+   '<label class="chk"><input type="checkbox" class="sc-stk" checked> เพิ่มสต็อกเฉพาะรายการที่ตรงกับสินค้าในสต็อก</label></div>'+
+   '<p class="hint sc-note"></p>'+
+   '<div class="fbtns"><button type="button" class="btn primary sc-save">บันทึก</button></div>'+
+   (thumb?'<details><summary class="hint">ดูรูปที่สแกน</summary><img src="'+thumb+'" style="width:100%;border-radius:8px"></details>':'');
+  var q=function(s){return body.querySelector(s)}, rowsBox=q('.sc-rows');
+  q('.sc-date').value=parsed.date||todayISO();
+  q('.sc-total').value=parsed.total!==null?String(parsed.total):'';
+  var rows=parsed.rows.length?parsed.rows.slice(0,40):[{desc:'',qty:'',price:'',amt:''}];
+  function sumRows(){var s=0; rows.forEach(function(r){var a=num(r.amt); if(a===null){var qq=num(r.qty),pp=num(r.price); if(qq!==null&&pp!==null)a=qq*pp} if(a!==null)s+=a}); return Math.round(s*100)/100}
+  function draw(){
+    rowsBox.textContent='';
+    rows.forEach(function(r,i){
+      var d=mkEl('div','item'); d.style.cssText='margin-bottom:8px;padding:8px';
+      d.innerHTML='<input class="d" type="text" placeholder="ชื่อสินค้า" autocomplete="off"><div class="ig"><label>จำนวน<input class="q" type="text" inputmode="decimal"></label><label>ราคา/หน่วย<input class="p" type="text" inputmode="decimal"></label><label>รวม<input class="a" type="text" inputmode="decimal"></label></div><div class="hint sc-m" style="margin:2px 0"></div><button type="button" class="btn sm sc-del">ลบแถว</button>';
+      var di=d.querySelector('.d'),qi=d.querySelector('.q'),pi=d.querySelector('.p'),ai=d.querySelector('.a'),mm=d.querySelector('.sc-m');
+      di.value=r.desc; qi.value=r.qty; pi.value=r.price; ai.value=r.amt;
+      function mt(){var p=scanMatch(r.desc); mm.textContent=p?'ตรงกับสต็อก: '+p.name:'ไม่ตรงกับสินค้าในสต็อก'; mm.style.color=p?'#2e7d32':'#8a6d00'}
+      di.addEventListener('input',function(){r.desc=di.value;mt()});
+      qi.addEventListener('input',function(){r.qty=qi.value});
+      pi.addEventListener('input',function(){r.price=pi.value});
+      ai.addEventListener('input',function(){r.amt=ai.value; var s=sumRows(); if(!q('.sc-total').dataset.edited) q('.sc-total').value=s?String(s):''});
+      d.querySelector('.sc-del').addEventListener('click',function(){rows.splice(i,1);if(!rows.length)rows.push({desc:'',qty:'',price:'',amt:''});draw()});
+      mt(); rowsBox.appendChild(d);
+    });
+  }
+  draw();
+  q('.sc-total').addEventListener('input',function(){this.dataset.edited='1'});
+  q('.sc-add').addEventListener('click',function(){if(rows.length>=40)return; rows.push({desc:'',qty:'',price:'',amt:''});draw()});
+  function setKind(k){kind=k; body.querySelectorAll('.sc-kind button').forEach(function(b){b.classList.toggle('on',b.dataset.k===k)}); q('.sc-buy').hidden=k!=='buy';
+    q('.sc-note').textContent=k==='buy'?'':'รายการจะถูกเพิ่มเข้าบิลที่เปิดอยู่ในแท็บทำบิล (สูงสุด '+MAX_ROWS+' แถว) แล้วกดบันทึก/ทำ PDF ตามปกติ'}
+  body.querySelectorAll('.sc-kind button').forEach(function(b){b.addEventListener('click',function(){setKind(b.dataset.k)})});
+  setKind('buy');
+  q('.sc-save').addEventListener('click',function(){
+    var good=rows.filter(function(r){return String(r.desc).trim()});
+    if(!good.length){toast('ยังไม่มีรายการสินค้า');return}
+    if(kind==='sell'){
+      var b=state.bill, items=b.items.filter(function(it){return String(it.desc).trim()||String(it.qty).trim()||String(it.price).trim()||String(it.amount).trim()});
+      var room=MAX_ROWS-items.length, add=good.slice(0,Math.max(0,room));
+      if(!add.length){toast('บิลเต็มแล้ว (สูงสุด '+MAX_ROWS+' แถว)');return}
+      add.forEach(function(r){var it=emptyItem(); it.desc=r.desc.trim(); it.qty=r.qty; it.price=r.price; var p=scanMatch(r.desc); if(p){it.pid=p.id; if(it.price==='')it.price=tierPrice(p)} items.push(it)});
+      b.items=items; renderItems(); updateBill(); persist(); document.body.dataset.view='bill'; requestAnimationFrame(fit); window.scrollTo({top:0});
+      S.close(); toast('เพิ่ม '+add.length+' รายการเข้าบิลแล้ว'+(good.length>add.length?' (เกิน '+(good.length-add.length)+' แถว ไม่ได้ใส่)':'')); return;
+    }
+    var msgs=[];
+    if(q('.sc-led').checked){
+      var tot=num(q('.sc-total').value); if(tot===null||tot<=0){toast('ใส่ยอดรวมบิลก่อน');return}
+      var vend=q('.sc-vendor').value.trim();
+      snapshot('ก่อนบันทึกรายจ่ายจากสแกนบิล');
+      ledger.entries.push(normEntry({type:'out',date:q('.sc-date').value||todayISO(),cat:'รายจ่ายอื่นๆ',desc:'ซื้อของ'+(vend?' '+vend:''),amt:tot,note:good.map(function(r){return r.desc.trim()}).join(', ').slice(0,200),paid:true,auto:'scan'}));
+      saveLedger(); renderLedger(); msgs.push('บันทึกรายจ่าย '+fmt(tot)+' บาท');
+    }
+    if(q('.sc-stk').checked){
+      var n=0, skipped=0;
+      good.forEach(function(r){var p=scanMatch(r.desc), qq=num(r.qty); if(!p||qq===null||qq<=0){skipped++;return} p.stock=Math.round((p.stock+qq)*1000)/1000; logMove(p,qq,'ซื้อเข้า (สแกนบิล)',''); n++});
+      if(n){saveStockNow(); renderStock()}
+      msgs.push('เพิ่มสต็อก '+n+' รายการ'+(skipped?' (ข้าม '+skipped+')':''));
+    }
+    if(!msgs.length){toast('ไม่ได้เลือกให้บันทึกอะไร');return}
+    S.close(); toast(msgs.join(' · '));
+  });
+}
+function scanStart(file){
+  var S=wSheet('สแกนบิลจากรูป','<p class="hint sc-st" style="margin-top:0">กำลังเตรียมรูป…</p><div class="sc-bar" style="height:8px;background:#eee;border-radius:4px;overflow:hidden"><div class="sc-bi" style="height:100%;width:0;background:#6a3d5e"></div></div><p class="hint">ครั้งแรกต้องโหลดตัวอ่านภาษาไทย (ประมาณ 10-20 MB) อาจใช้เวลาสักครู่ ต้องมีอินเทอร์เน็ต</p>');
+  var st=S.q('.sc-st'), bi=S.q('.sc-bi'), dead=false;
+  S.sh.querySelector('.sh-close').addEventListener('click',function(){dead=true});
+  var thumb='';
+  prepImage(file).then(function(r){
+    thumb=r.thumb; st.textContent='กำลังโหลดตัวอ่านภาพ…'; return loadTess().then(function(){return r.canvas});
+  }).then(function(canvas){
+    if(dead) return;
+    return Tesseract.createWorker(['tha','eng'],1,{logger:function(m){ if(dead||!m)return; if(m.status==='recognizing text'){st.textContent='กำลังอ่านข้อความ… '+Math.round((m.progress||0)*100)+'%'; bi.style.width=Math.round((m.progress||0)*100)+'%'} else if(/loading|initializ/.test(m.status||'')){st.textContent='เตรียมตัวอ่านภาษาไทย…'; bi.style.width=Math.round((m.progress||0)*60)+'%'} }}).then(function(w){
+      return w.recognize(canvas).then(function(r){return w.terminate().then(function(){return r.data.text})});
+    });
+  }).then(function(text){
+    if(dead||text===undefined) return;
+    var parsed=scanParse(text);
+    scanReview(S,parsed,thumb);
+    if(!parsed.rows.length) toast('อ่านรายการไม่ออก ลองถ่ายให้ตรงและสว่างขึ้น หรือกรอกเอง');
+  }).catch(function(e){ st.textContent='ผิดพลาด: '+(e&&e.message||e); st.style.color='#b3261e' });
+}
+var scanIn=document.createElement('input'); scanIn.type='file'; scanIn.accept='image/*'; scanIn.hidden=true; document.body.appendChild(scanIn);
+scanIn.addEventListener('change',function(){var f=scanIn.files&&scanIn.files[0]; scanIn.value=''; if(f) scanStart(f)});
+$('#scanBtn').addEventListener('click',function(){scanIn.click()});
+window.__scan={parse:scanParse,review:function(t){var S=wSheet('สแกนบิลจากรูป','');scanReview(S,scanParse(t),'')}};
 
 /* view switch */
 document.querySelectorAll('.views button').forEach(function(b){
