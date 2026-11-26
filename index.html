@@ -672,7 +672,7 @@ body[data-view=bill] #ledgerView,body[data-view=stock] #ledgerView,body[data-vie
 var FB={apiKey:"AIzaSyAiSpzopjGgb6GjHgQFbzYB-YCtG2Rvbes",authDomain:"chokprathan-manage.firebaseapp.com",projectId:"chokprathan-manage",storageBucket:"chokprathan-manage.firebasestorage.app",messagingSenderId:"377668499719",appId:"1:377668499719:web:b7bb4215a911b4069e2da2"};
 /* owner sees every branch; branch accounts only see their own. Keep in step with the Firestore rules. */
 var OWNERS=['tean12328@gmail.com'];
-var BRANCH_USERS={ /* 'email@example.com':'bk' */ };
+var BRANCH_USERS={'admin@chok.local':'bk'};
 var CH=200000, DEVKEY='__sync_dev', DIRTYKEY='__sync_dirty';
 var SKIP=/_snap_|prerestore|lastbackup/;
 var ls=window.localStorage, proto=Storage.prototype, rawSet=proto.setItem;
@@ -689,11 +689,11 @@ document.head.appendChild(css);
 var ov=null,pill=null;
 function showLogin(msg){
   if(!ov){ov=document.createElement('div');ov.id='syncLogin';
-    ov.innerHTML='<form class="bx" id="sfm"><h1>โชคประธานค้าไม้</h1><p>เข้าสู่ระบบเพื่อใช้งาน</p><input id="sem" type="email" placeholder="อีเมล" autocomplete="username" autocapitalize="off"><input id="spw" type="password" placeholder="รหัสผ่าน" autocomplete="current-password"><div class="er" id="ser"></div><button type="submit" id="sbt">เข้าสู่ระบบ</button></form>';
+    ov.innerHTML='<form class="bx" id="sfm"><h1>โชคประธานค้าไม้</h1><p>เข้าสู่ระบบเพื่อใช้งาน</p><input id="sem" name="username" type="text" inputmode="email" placeholder="อีเมล หรือ ชื่อผู้ใช้" autocomplete="username" autocapitalize="off" autocorrect="off"><input id="spw" name="password" type="password" placeholder="รหัสผ่าน" autocomplete="current-password"><label style="display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:14px;color:#555"><input id="srm" type="checkbox" checked style="width:auto;margin:0"> จดจำอีเมลในเครื่องนี้</label><div class="er" id="ser"></div><button type="submit" id="sbt">เข้าสู่ระบบ</button></form>';
     document.body.appendChild(ov);
     ov.querySelector('#sfm').addEventListener('submit',function(e){e.preventDefault();doLogin()});
   }
-  ov.hidden=false; ov.querySelector('#ser').textContent=msg||'';
+  ov.hidden=false; ov.querySelector('#ser').textContent=msg||''; try{var re=ls.getItem('__sync_email'); if(re&&!ov.querySelector('#sem').value)ov.querySelector('#sem').value=re}catch(e){}
 }
 function hideLogin(){if(ov)ov.hidden=true}
 function setSt(s,t){st=s; if(!pill){pill=document.createElement('div');pill.id='syncPill';document.body.appendChild(pill);
@@ -702,8 +702,9 @@ function setSt(s,t){st=s; if(!pill){pill=document.createElement('div');pill.id='
 function banner(){ if(document.getElementById('syncBan'))return; var b=document.createElement('div'); b.id='syncBan'; b.textContent='มีข้อมูลใหม่จากเครื่องอื่น แตะเพื่ออัปเดต'; b.onclick=function(){location.reload()}; document.body.appendChild(b) }
 function errTh(c){ if(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c))return'อีเมลหรือรหัสผ่านไม่ถูกต้อง'; if(/too-many/.test(c))return'ลองหลายครั้งเกินไป รอสักครู่แล้วลองใหม่'; if(/network/.test(c))return'ไม่มีอินเทอร์เน็ต'; return'เข้าสู่ระบบไม่สำเร็จ ('+c+')' }
 function doLogin(){
-  var em=ov.querySelector('#sem').value.trim(), pw=ov.querySelector('#spw').value;
+  var raw=ov.querySelector('#sem').value.trim(), em=raw.indexOf('@')<0?raw.toLowerCase()+'@chok.local':raw, pw=ov.querySelector('#spw').value;
   if(!em||!pw){ov.querySelector('#ser').textContent='กรอกอีเมลและรหัสผ่าน';return}
+  try{ if(ov.querySelector('#srm').checked)rawSet.call(ls,'__sync_email',raw); else ls.removeItem('__sync_email') }catch(e){}
   ov.querySelector('#sbt').disabled=true;
   F.signInWithEmailAndPassword(F.auth,em,pw).catch(function(e){ov.querySelector('#ser').textContent=errTh(e.code||'')}).then(function(){ov.querySelector('#sbt').disabled=false});
 }
@@ -783,7 +784,7 @@ function boot(){
     import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js')
   ]).then(function(m){
     var app=m[0].initializeApp(FB);
-    F=Object.assign({},m[1],m[2]); F.auth=F.getAuth(app); db=F.getFirestore(app);
+    F=Object.assign({},m[1],m[2]); F.auth=F.getAuth(app); try{F.setPersistence(F.auth,F.browserLocalPersistence)}catch(e){} db=F.getFirestore(app);
     F.onAuthStateChanged(F.auth,function(u){ if(u)afterAuth(u); else {user=null;ready=false;if(pill)pill.hidden=true;showLogin('')} });
   }).catch(function(e){showLogin('โหลดระบบล็อกอินไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วรีเฟรช')});
 }
